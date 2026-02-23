@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="p-5 mb-4 bg-white rounded-3 shadow-sm text-center">
+    <div class="container-fluid py-5">
+        <h1 class="display-5 fw-bold text-primary">Gestión de Suministros Informáticos</h1>
+        <p class="col-md-12 fs-4 text-muted">
+            Bienvenido al portal de control de stock.
+        </p>
+        <hr class="my-4">
+
+        {% if current_user.is_authenticated %}
+            <p class="fs-5">Usuario: <strong>{{ current_user.username }}</strong>
+               <span class="badge bg-info text-dark">{{ current_user.rol|upper }}</span>
+            </p>
+
+            <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4">
+                {# SECCIÓN PARA ADMINISTRADORES #}
+                {% if current_user.rol == 'admin' %}
+                    <a href="{{ url_for('nuevo_producto') }}" class="btn btn-success btn-lg px-4 shadow-sm">
+                        <i class="bi bi-plus-circle"></i> Añadir Producto
+                    </a>
+                {% endif %}
+
+                {# SECCIÓN PARA TODOS (Clientes y Admin) #}
+                <a href="{{ url_for('ver_catalogo') }}" class="btn btn-outline-primary btn-lg px-4 shadow-sm">
+                    <i class="bi bi-shop"></i> Ver Catálogo
+                </a>
+            </div>
+        {% else %}
+            <p>Por favor, inicia sesión para acceder al sistema.</p>
+            <a href="{{ url_for('login') }}" class="btn btn-primary btn-lg px-4">Acceder al Sistema</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

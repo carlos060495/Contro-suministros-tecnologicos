@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Panel de Gestión de Inventario</h2>
+    <a href="{{ url_for('nuevo_producto') }}" class="btn btn-success">+ Añadir Producto</a>
+</div>
+
+<div class="card shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>ID</th>
+                    <th>Producto</th>
+                    <th>Stock Actual</th>
+                    <th>Ocupación</th>
+                    <th>Reabastecer</th>
+                    <th>P. Venta</th>
+                    <th class="text-center">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in productos %}
+                {% set p = item.producto %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td><strong>{{ p.nombre }}</strong></td>
+                    <td>
+                        {% if item.alerta == 'danger' %}
+                            <span class="badge bg-danger">
+                                {{ p.cantidad_actual }} / {{ p.stock_maximo }}
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                            </span>
+                        {% elif item.alerta == 'warning' %}
+                            <span class="badge bg-warning text-dark">
+                                {{ p.cantidad_actual }} / {{ p.stock_maximo }}
+                                <i class="bi bi-exclamation-circle"></i>
+                            </span>
+                        {% elif item.alerta == 'info' %}
+                            <span class="badge bg-info text-dark">
+                                {{ p.cantidad_actual }} / {{ p.stock_maximo }}
+                                <i class="bi bi-inbox-fill"></i>
+                            </span>
+                        {% else %}
+                            <span class="badge bg-success">
+                                {{ p.cantidad_actual }} / {{ p.stock_maximo }}
+                            </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.alerta == 'danger' %}
+                            <span class="text-danger fw-bold">{{ item.porcentaje }}% <small>(⚠️ CRÍTICO - PEDIR AL PROVEEDOR)</small></span>
+                        {% elif item.alerta == 'warning' %}
+                            <span class="text-warning fw-bold">{{ item.porcentaje }}% <small>(Stock Bajo)</small></span>
+                        {% elif item.alerta == 'info' %}
+                            <span class="text-info fw-bold">{{ item.porcentaje }}% <small>(Casi Lleno)</small></span>
+                        {% else %}
+                            <span class="text-success">{{ item.porcentaje }}%</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <form action="{{ url_for('reabastecer_producto', producto_id=p.id) }}" method="POST" class="d-flex shadow-sm">
+                            <input type="number" name="cantidad" class="form-control form-control-sm" placeholder="Cant." style="width: 70px;" required min="1">
+                            <button type="submit" class="btn btn-success btn-sm ms-1">
+                                <i class="bi bi-plus-lg"></i> +
+                            </button>
+                        </form>
+                    </td>
+                    <td>{{ p.precio_venta }}€</td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#modalVenta{{ p.id }}">
+                            <i class="bi bi-cart-plus"></i> Vender
+                        </button>
+                        <a href="{{ url_for('editar_producto', id=p.id) }}"
+                           class="btn btn-sm btn-outline-primary me-2">
+                           Editar
+                        </a>
+
+                        <a href="{{ url_for('eliminar_producto', id=p.id) }}"
+                           class="btn btn-sm btn-outline-danger"
+                           onclick="return confirm('¿Estás seguro de eliminar este producto?')">
+                           Eliminar
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modales para venta con selección de cliente -->
+{% for item in productos %}
+{% set p = item.producto %}
+<div class="modal fade" id="modalVenta{{ p.id }}" tabindex="-1" aria-labelledby="modalVentaLabel{{ p.id }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="modalVentaLabel{{ p.id }}">
+                    <i class="bi bi-cart-plus"></i> Generar Venta/Reserva
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ url_for('realizar_venta', producto_id=p.id) }}" method="POST">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <strong>Producto:</strong> {{ p.nombre }}<br>
+                        <strong>Precio:</strong> {{ p.precio_venta }}€<br>
+                        <strong>Stock Disponible:</strong> {{ p.cantidad_actual }} unidades
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="cliente{{ p.id }}" class="form-label">
+                            <i class="bi bi-person-fill"></i> Cliente *
+                        </label>
+                        <select name="cliente_id" id="cliente{{ p.id }}" class="form-select" required>
+                            <option value="">-- Seleccionar Cliente --</option>
+                            {% for cliente in clientes %}
+                                <option value="{{ cliente.id }}">{{ cliente.username }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted">Selecciona el cliente para quien es esta reserva</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="cantidad{{ p.id }}" class="form-label">
+                            <i class="bi bi-box-seam"></i> Cantidad *
+                        </label>
+                        <input type="number" name="cantidad" id="cantidad{{ p.id }}"
+                               class="form-control" value="1" min="1" max="{{ p.cantidad_actual }}" required>
+                        <small class="text-muted">Máximo: {{ p.cantidad_actual }} unidades</small>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="descuento{{ p.id }}" class="form-label">
+                                <i class="bi bi-percent"></i> Descuento Cliente (%)
+                            </label>
+                            <input type="number" name="descuento" id="descuento{{ p.id }}"
+                                   class="form-control" value="0" min="0" max="100" step="0.1">
+                            <small class="text-muted">0-100%</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="iva{{ p.id }}" class="form-label">
+                                <i class="bi bi-calculator"></i> IVA (%)
+                            </label>
+                            <input type="number" name="iva" id="iva{{ p.id }}"
+                                   class="form-control" value="21" min="0" max="100" step="0.1">
+                            <small class="text-muted">Por defecto: 21%</small>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning">
+                        <i class="bi bi-info-circle"></i> <strong>Importante:</strong>
+                        La reserva se creará en estado "Pendiente". El cliente tendrá 48h para recoger el producto.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle"></i> Cancelar
+                    </button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-check-circle"></i> Confirmar Venta
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% endblock %}

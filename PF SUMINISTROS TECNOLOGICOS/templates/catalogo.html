@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold text-dark">Catálogo de Suministros</h2>
+        <span class="badge bg-secondary">Disponibles: {{ productos|length }}</span>
+    </div>
+
+    <div class="row row-cols-1 row-cols-md-3 g-4">
+        {% for p in productos %}
+        <div class="col">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="bg-light d-flex align-items-center justify-content-center" style="height: 150px;">
+                    <i class="bi bi-laptop display-1 text-muted"></i>
+                </div>
+
+                <div class="card-body">
+                    <h5 class="card-title fw-bold">{{ p.nombre }}</h5>
+                    <p class="card-text text-muted small">
+                        Disponibles: <span class="badge bg-info text-dark">{{ p.cantidad_actual }}</span>
+                    </p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="fs-4 fw-bold text-success">{{ p.precio_venta }}€</span>
+
+                        <form action="{{ url_for('anadir_al_carrito', producto_id=p.id) }}" method="POST" class="d-flex align-items-center">
+                            <input type="number" name="cantidad" value="1" min="1" max="{{ p.cantidad_actual }}"
+                                   class="form-control form-control-sm me-2" style="width: 60px;">
+                            <button type="submit" class="btn btn-outline-primary px-3 shadow-sm btn-sm">
+                                <i class="bi bi-cart-plus"></i> Añadir
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
