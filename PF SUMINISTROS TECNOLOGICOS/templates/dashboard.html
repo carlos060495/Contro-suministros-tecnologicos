@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4">Dashboard de Negocio</h2>
+
+    <div class="row">
+        <div class="col-lg-6 mb-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 text-primary">Flujo de Caja Global</h5>
+                </div>
+                <div class="card-body">
+                    <div id="chart-bar" style="min-height: 400px; width: 100%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6 mb-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 text-primary">Top 3 Rendimiento de Productos</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Producto</th>
+                                    <th class="text-center">Vendidos</th>
+                                    <th class="text-center">Costo Total</th>
+                                    <th class="text-center">Venta Total</th>
+                                    <th class="text-center">Ganancia</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in top_3 %}
+                                <tr>
+                                    <td><strong>{{ item.nombre }}</strong></td>
+                                    <td class="text-center">{{ item.cantidad }}</td>
+                                    <td class="text-center text-danger">{{ "{:,.2f}".format(item.costo_total) }}€</td>
+                                    <td class="text-center text-primary">{{ "{:,.2f}".format(item.venta_total) }}€</td>
+                                    <td class="text-center">
+                                        <span class="badge {% if item.ganancia >= 0 %}bg-success{% else %}bg-danger{% endif %}">
+                                            {{ "{:,.2f}".format(item.ganancia) }}€
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="5" class="text-center py-5 text-muted">
+                                        No hay datos de ventas disponibles para mostrar el Top 3.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. Obtener datos de Python
+        var graphBar = {{ graph_bar | safe }};
+
+        // 2. Configuración de diseño adicional para que encaje bien en la card
+        var layoutUpdate = {
+            margin: { t: 30, b: 40, l: 50, r: 20 },
+            autosize: true
+        };
+
+        // 3. Renderizar gráfico
+        if (graphBar && graphBar.data) {
+            Plotly.newPlot('chart-bar', graphBar.data, graphBar.layout, {
+                responsive: true,
+                displayModeBar: false
+            });
+
+            // Forzar ajuste de tamaño al cargar
+            Plotly.relayout('chart-bar', layoutUpdate);
+        } else {
+            document.getElementById('chart-bar').innerHTML =
+                '<div class="text-center mt-5 text-muted">No hay datos suficientes para generar el gráfico.</div>';
+        }
+    });
+</script>
+{% endblock %}
