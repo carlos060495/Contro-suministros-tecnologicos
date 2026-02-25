@@ -14,10 +14,10 @@ from functools import wraps
 
 load_dotenv()
 
-# VALOR POR DEFECTO: IVA aplicado en España (editable por operación)
+# IVA estándar aplicable (editable por transacción)
 IVA_DEFECTO = 21.0
 
-# DECORADOR PERSONALIZADO: Protección de rutas administrativas
+# Bloqueo de rutas: solo admin puede acceder
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -30,34 +30,31 @@ def admin_required(f):
 def create_app():
     app = Flask(__name__)
 
-    # 1. CONFIGURACIÓN
-    # Definimos la ruta absoluta hacia la carpeta 'database'
     basedir = os.path.abspath(os.path.dirname(__file__))
     db_path = os.path.join(basedir, 'database', 'suministros.db')
 
-    # Ahora le pasamos esa ruta exacta a SQLAlchemy
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-    app.config['REMEMBER_COOKIE_DURATION'] = 0  # No recordar cookies por defecto
-    app.config['SESSION_PERMANENT'] = False  # La sesión no es permanente
-    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Duración de la sesión
+    app.config['REMEMBER_COOKIE_DURATION'] = 0
+    app.config['SESSION_PERMANENT'] = False
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 
     db.init_app(app)
 
     login_manager = LoginManager()
-    login_manager.login_view = 'login'  # Si alguien intenta entrar a algo prohibido, lo manda aquí
+    login_manager.login_view = 'login'
     login_manager.init_app(app)
 
     def limpiar_reservas_expiradas():
+        # Política de negocio: liberación automática tras 48h sin recoger
         limite = datetime.now(timezone.utc) - timedelta(hours=48)
-        # Buscamos pedidos tipo venta, en estado pendiente que superen las 48h
         expirados = Pedido.query.filter_by(estado='pendiente', tipo='venta').filter(Pedido.fecha < limite).all()
 
         for r in expirados:
             producto = Producto.query.get(r.producto_id)
             if producto:
-                producto.cantidad_actual += r.cantidad  # Devolvemos stock
+                producto.cantidad_actual += r.cantidad
             r.estado = 'cancelado'
 
         if expirados:
@@ -65,18 +62,15 @@ def create_app():
 
     @login_manager.user_loader
     def load_user(user_id):
-        # Esta función le dice a Flask cómo encontrar al usuario por su ID
         return Usuario.query.get(int(user_id))
 
-    # 3. CREACIÓN DE TABLAS Y ADMIN INICIAL
     with app.app_context():
         db.create_all()
 
-        # Obtenemos las credenciales desde .env
         user_env = os.getenv('ADMIN_USER')
         pass_env = os.getenv('ADMIN_PASS')
 
-        # Comprobamos si el admin ya existe para no duplicarlo
+        # Prevención de duplicados al reiniciar aplicación
         if not Usuario.query.filter_by(username=user_env).first():
             admin_inicial = Usuario(
                 username=user_env,
@@ -95,7 +89,7 @@ def create_app():
         return render_template('index.html')
 
     @app.route('/registro', methods=['GET', 'POST'])
-    def registro():  # <--- Este es el nombre (endpoint) que busca el error
+    def registro():
         if request.method == 'POST':
             username = request.form.get('username')
             password = request.form.get('password')
@@ -122,11 +116,8 @@ def create_app():
             usuario_ingresado = request.form.get('username')
             password_ingresada = request.form.get('password')
 
-            # Buscamos al usuario en la base de datos de verdad
             user = Usuario.query.filter_by(username=usuario_ingresado).first()
 
-            # 2. Verificamos: ¿Existe el usuario? Y ¿la contraseña es correcta?
-            # Usamos el nuevo método .check_password() que creamos en el modelo
             if user and user.check_password(password_ingresada):
                 if not user.activo:
                     flash("Tu cuenta ha sido desactivada. Contacta al administrador.", "danger")
@@ -144,10 +135,7 @@ def create_app():
     @login_required
     @admin_required
     def ver_usuarios():
-        # Obtenemos todos los usuarios de la base de datos
         todos_los_usuarios = Usuario.query.all()
-
-        # Enviamos la lista al HTML
         return render_template('usuarios.html', usuarios=todos_los_usuarios)
 
     @app.route('/proveedores')
@@ -168,9 +156,10 @@ def create_app():
                 nombre = request.form.get('nombre_empresa')
                 cif = request.form.get('cif')
                 telefono = request.form.get('telefono')
-                direccion = request.form.get('direccion')  # NUEVO
+                direccion = request.form.get('direccion')
                 descuento = float(request.form.get('descuento', 0))
 
+                # Validación: porcentajes solo entre 0-100
                 if descuento < 0 or descuento > 100:
                     flash("El descuento debe estar entre 0 y 100%", "danger")
                     return redirect(url_for('nuevo_proveedor'))
@@ -184,7 +173,7 @@ def create_app():
                     nombre_empresa=nombre,
                     cif=cif,
                     telefono=telefono,
-                    direccion=direccion,  # NUEVO
+                    direccion=direccion,
                     descuento=descuento
                 )
                 db.session.add(nuevo)
@@ -216,7 +205,7 @@ def create_app():
                 proveedor.nombre_empresa = request.form.get('nombre_empresa')
                 proveedor.cif = request.form.get('cif')
                 proveedor.telefono = request.form.get('telefono')
-                proveedor.direccion = request.form.get('direccion')  # NUEVO
+                proveedor.direccion = request.form.get('direccion')
                 proveedor.descuento = nuevo_descuento
 
                 db.session.commit()
@@ -236,7 +225,7 @@ def create_app():
         from models import Proveedor
         proveedor = Proveedor.query.get_or_404(id)
 
-        # Verificar si tiene productos asociados
+        # Integridad referencial: no eliminar si tiene productos asociados
         if proveedor.productos:
             flash(f"No se puede eliminar: {proveedor.nombre_empresa} tiene {len(proveedor.productos)} productos asociados", "danger")
             return redirect(url_for('ver_proveedores'))
@@ -257,19 +246,16 @@ def create_app():
     @login_required
     @admin_required
     def cambiar_estado(id):
-        # Buscamos al usuario por su ID
         user = Usuario.query.get_or_404(id)
 
-        # Seguridad: El admin no puede desactivarse a sí mismo
+        # Protección: evita bloqueo total del sistema sin admin activo
         if user.id == current_user.id:
             flash("No puedes desactivar tu propia cuenta", "warning")
             return redirect(url_for('ver_usuarios'))
 
-        # Cambiamos el estado (si era True pasa a False, y viceversa)
         user.activo = not user.activo
         db.session.commit()
 
-        # Mensaje personalizado según el nuevo estado
         estado_texto = "activado" if user.activo else "desactivado"
         flash(f"El usuario {user.username} ha sido {estado_texto}.", "success")
 
@@ -279,7 +265,6 @@ def create_app():
     @login_required
     @admin_required
     def eliminar_usuario(id):
-
         user_a_eliminar = Usuario.query.get_or_404(id)
 
         # Evitar que el admin se elimine a sí mismo
@@ -287,10 +272,37 @@ def create_app():
             flash("No puedes darte de baja a ti mismo", "warning")
             return redirect(url_for('inventario'))
 
-        db.session.delete(user_a_eliminar)  # Aquí lo borramos físicamente
+        db.session.delete(user_a_eliminar)
         db.session.commit()
 
         flash(f"Usuario {user_a_eliminar.username} eliminado correctamente", "success")
+        return redirect(url_for('ver_usuarios'))
+
+    @app.route('/usuario/resetear_password/<int:id>', methods=['POST'])
+    @login_required
+    @admin_required
+    def resetear_password_usuario(id):
+        usuario = Usuario.query.get_or_404(id)
+
+        # Seguridad: admin no puede cambiar su propia contraseña
+        if usuario.id == current_user.id:
+            flash("No puedes cambiar tu propia contraseña desde aquí. Usa tu perfil.", "warning")
+            return redirect(url_for('ver_usuarios'))
+
+        nueva_password = request.form.get('nueva_password', '').strip()
+
+        if not nueva_password:
+            flash("Debes ingresar una contraseña", "danger")
+            return redirect(url_for('ver_usuarios'))
+
+        if len(nueva_password) < 6:
+            flash("La contraseña debe tener al menos 6 caracteres", "danger")
+            return redirect(url_for('ver_usuarios'))
+
+        usuario.set_password(nueva_password)
+        db.session.commit()
+
+        flash(f"✅ Contraseña de '{usuario.username}' cambiada exitosamente. Nueva contraseña: {nueva_password}", "success")
         return redirect(url_for('ver_usuarios'))
 
     @app.route('/producto/nuevo', methods=['GET', 'POST'])
@@ -300,32 +312,27 @@ def create_app():
         from models import Proveedor
 
         if request.method == 'POST':
-            # Recogemos los datos del formulario
             nombre = request.form.get('nombre')
             descripcion = request.form.get('descripcion')
-            ubicacion = request.form.get('ubicacion')  # NUEVO
+            ubicacion = request.form.get('ubicacion')
             proveedor_id = request.form.get('proveedor_id')
 
-            # Validación de campos numéricos
             try:
-                # Precios SIN IVA (lo que ingresa el admin)
                 p_coste_sin_iva = float(request.form.get('precio_coste'))
                 p_venta_sin_iva = float(request.form.get('precio_venta'))
 
-                # IVA editable (por defecto 21%)
                 iva_porcentaje = float(request.form.get('iva', IVA_DEFECTO))
                 if iva_porcentaje < 0 or iva_porcentaje > 100:
                     flash("El IVA debe estar entre 0 y 100%", "danger")
                     return redirect(url_for('nuevo_producto'))
 
-                # Aplicamos IVA
-                p_coste = p_coste_sin_iva * (1 + iva_porcentaje / 100)
-                p_venta = p_venta_sin_iva * (1 + iva_porcentaje / 100)
+                # Aplicamos IVA manualmente para evitar inconsistencias en cálculos
+                p_coste = round(p_coste_sin_iva * (1 + iva_porcentaje / 100), 2)
+                p_venta = round(p_venta_sin_iva * (1 + iva_porcentaje / 100), 2)
 
                 stock_inicial = int(request.form.get('cantidad_actual'))
                 maximo = int(request.form.get('stock_maximo'))
 
-                # Validaciones de negocio (con precios sin IVA)
                 if p_coste_sin_iva < 0 or p_venta_sin_iva < 0:
                     flash("Los precios no pueden ser negativos", "danger")
                     return redirect(url_for('nuevo_producto'))
@@ -345,11 +352,10 @@ def create_app():
                 flash("Error: Los campos numéricos contienen valores inválidos", "danger")
                 return redirect(url_for('nuevo_producto'))
 
-            # Creamos el objeto Producto
             nuevo = Producto(
                 nombre=nombre,
                 descripcion=descripcion,
-                ubicacion=ubicacion,  # NUEVO
+                ubicacion=ubicacion,
                 precio_coste=p_coste,
                 precio_venta=p_venta,
                 cantidad_actual=stock_inicial,
@@ -360,14 +366,14 @@ def create_app():
             db.session.add(nuevo)
             db.session.flush()
 
-            # 2. NUEVO: Registramos la inversión inicial en la tabla Pedido
+            # Registramos inversión inicial como compra para gráfico de costos
             if stock_inicial > 0:
                 registro_costo_inicial = Pedido(
                     cantidad=stock_inicial,
                     precio_unidad_coste=p_coste,
                     precio_unidad_venta=p_venta,
-                    total_venta=0,  # Es una compra al proveedor, no hay ingreso de venta
-                    tipo='compra',  # IMPORTANTE: Esto hará que sume en la barra de Costos
+                    total_venta=0,
+                    tipo='compra',
                     usuario_id=current_user.id,
                     producto_id=nuevo.id
                 )
@@ -377,7 +383,6 @@ def create_app():
             flash('Producto y stock inicial registrados con éxito')
             return redirect(url_for('inventario'))
 
-        # GET: Enviamos la lista de proveedores al formulario
         proveedores = Proveedor.query.all()
         return render_template('nuevo_producto.html', proveedores=proveedores)
 
@@ -385,23 +390,20 @@ def create_app():
     @login_required
     @admin_required
     def inventario():
-
-        # Consultamos TODOS los productos de la tabla
         todos_los_productos = Producto.query.all()
 
-        # NUEVO: Calcular alertas de stock (CORREGIDO: alerta cuando stock está BAJO)
+        # Sistema de alertas: rojo ≤10%, amarillo ≤25%, azul ≥90%
         productos_con_alertas = []
         for p in todos_los_productos:
             porcentaje_ocupacion = (p.cantidad_actual / p.stock_maximo * 100) if p.stock_maximo > 0 else 0
             alerta = None
 
-            # LÓGICA CORRECTA: Alertar cuando el stock está BAJO, no cuando está lleno
             if porcentaje_ocupacion <= 10:
-                alerta = 'danger'  # Rojo: CRÍTICO - Stock muy bajo (≤10%)
+                alerta = 'danger'
             elif porcentaje_ocupacion <= 25:
-                alerta = 'warning'  # Amarillo: Advertencia - Stock bajo (≤25%)
+                alerta = 'warning'
             elif porcentaje_ocupacion >= 90:
-                alerta = 'info'  # Azul: Información - Casi lleno (≥90%)
+                alerta = 'info'
 
             productos_con_alertas.append({
                 'producto': p,
@@ -409,7 +411,6 @@ def create_app():
                 'alerta': alerta
             })
 
-        # Obtenemos la lista de clientes (usuarios con rol 'cliente')
         clientes = Usuario.query.filter_by(rol='cliente', activo=True).all()
 
         return render_template('inventario.html', productos=productos_con_alertas, clientes=clientes)
@@ -418,10 +419,7 @@ def create_app():
     @login_required
     @admin_required
     def eliminar_producto(id):
-        # Buscar el producto por su ID único
         producto = Producto.query.get_or_404(id)
-
-        # Borrar y confirmar cambios
         db.session.delete(producto)
         db.session.commit()
 
@@ -433,11 +431,9 @@ def create_app():
     @admin_required
     def editar_producto(id):
         from models import Proveedor
-        # Buscar el producto en la base de datos por su ID
         producto = Producto.query.get_or_404(id)
 
         if request.method == 'POST':
-            # Al recibir el formulario, actualizamos cada campo con validación
             try:
                 nuevo_precio_coste = float(request.form.get('precio_coste'))
                 nuevo_precio_venta = float(request.form.get('precio_venta'))
@@ -445,7 +441,6 @@ def create_app():
                 nuevo_maximo = int(request.form.get('stock_maximo'))
                 proveedor_id = request.form.get('proveedor_id')
 
-                # Validaciones
                 if nuevo_precio_coste < 0 or nuevo_precio_venta < 0:
                     flash("Los precios no pueden ser negativos", "danger")
                     return redirect(url_for('editar_producto', id=id))
@@ -460,7 +455,7 @@ def create_app():
 
                 producto.nombre = request.form.get('nombre')
                 producto.descripcion = request.form.get('descripcion')
-                producto.ubicacion = request.form.get('ubicacion')  # NUEVO
+                producto.ubicacion = request.form.get('ubicacion')
                 producto.precio_coste = nuevo_precio_coste
                 producto.precio_venta = nuevo_precio_venta
                 producto.cantidad_actual = nueva_cantidad
@@ -471,62 +466,52 @@ def create_app():
                 flash("Error: Los campos numéricos contienen valores inválidos", "danger")
                 return redirect(url_for('editar_producto', id=id))
 
-            # 4. Guardamos los cambios en la base de datos
             db.session.commit()
 
             flash(f'Producto "{producto.nombre}" actualizado con éxito')
             return redirect(url_for('inventario'))
 
-        # Si entramos por primera vez (GET), mostramos el formulario de edición
         proveedores = Proveedor.query.all()
         return render_template('editar_producto.html', producto=producto, proveedores=proveedores)
 
     @app.route('/venta/nueva/<int:producto_id>', methods=['POST'])
     @login_required
     def realizar_venta(producto_id):
-        # 1. Buscar el producto
         producto = Producto.query.get_or_404(producto_id)
         cantidad_a_vender = int(request.form.get('cantidad', 1))
 
-        # 2. Verificar stock disponible
         if producto.cantidad_actual < cantidad_a_vender:
             flash(f"Error: Stock insuficiente de {producto.nombre}", "danger")
             return redirect(url_for('inventario'))
 
-        # 3. Obtener descuento y IVA del formulario
         descuento_cliente = float(request.form.get('descuento', 0))
         if descuento_cliente < 0 or descuento_cliente > 100:
             descuento_cliente = 0
 
-        # IVA editable (por defecto 21%)
         iva_venta = float(request.form.get('iva', IVA_DEFECTO))
         if iva_venta < 0 or iva_venta > 100:
             iva_venta = IVA_DEFECTO
 
-        # 4. Calcular totales con descuento e IVA
-        precio_base = producto.precio_venta / (1 + IVA_DEFECTO / 100)  # Quitamos el IVA almacenado
-        precio_con_nuevo_iva = precio_base * (1 + iva_venta / 100)  # Aplicamos nuevo IVA
-        precio_con_descuento = precio_con_nuevo_iva * (1 - descuento_cliente / 100)
-        total = precio_con_descuento * cantidad_a_vender
+        # Quitamos IVA almacenado y aplicamos el nuevo con redondeo
+        precio_base = producto.precio_venta / (1 + IVA_DEFECTO / 100)
+        precio_con_nuevo_iva = round(precio_base * (1 + iva_venta / 100), 2)
+        precio_con_descuento = round(precio_con_nuevo_iva * (1 - descuento_cliente / 100), 2)
+        total = round(precio_con_descuento * cantidad_a_vender, 2)
 
-        # 5. Si es admin, puede especificar el cliente. Si no, es el usuario actual
+        # Si es admin puede especificar cliente, sino es el usuario actual
         if current_user.rol == 'admin':
             cliente_id = request.form.get('cliente_id')
             if cliente_id:
-                # Verificar que el cliente existe y está activo
                 cliente = Usuario.query.filter_by(id=int(cliente_id), rol='cliente', activo=True).first()
                 if not cliente:
                     flash("Cliente no válido", "danger")
                     return redirect(url_for('inventario'))
                 usuario_destino = int(cliente_id)
             else:
-                # Si no especifica cliente, se asigna al admin mismo
                 usuario_destino = current_user.id
         else:
-            # Si es cliente, siempre se asigna a sí mismo
             usuario_destino = current_user.id
 
-        # 6. Crear el Pedido
         nuevo_pedido = Pedido(
             tipo='venta',
             cantidad=cantidad_a_vender,
@@ -534,21 +519,18 @@ def create_app():
             precio_unidad_venta=precio_con_nuevo_iva,
             total_venta=total,
             descuento_aplicado=descuento_cliente,
-            iva_aplicado=iva_venta,  # NUEVO: Guardamos el IVA usado
+            iva_aplicado=iva_venta,
             usuario_id=usuario_destino,
             producto_id=producto.id,
             estado='pendiente'
         )
 
-        # 6. Restar stock del producto
         producto.cantidad_actual -= cantidad_a_vender
 
-        # 7. Guardar todo en la base de datos
         db.session.add(nuevo_pedido)
         db.session.commit()
 
         if current_user.rol == 'admin':
-            # Mensaje personalizado según si especificó cliente o no
             if cliente_id:
                 cliente = Usuario.query.get(usuario_destino)
                 flash(f"Reserva #{nuevo_pedido.id} creada para el cliente: {cliente.username}", "success")
@@ -556,7 +538,6 @@ def create_app():
                 flash(f"Reserva #{nuevo_pedido.id} creada (sin cliente asignado)", "info")
             return redirect(url_for('inventario'))
         else:
-            # El cliente recibe el mensaje de cortesía y las instrucciones
             flash(f"¡Reserva confirmada! Recuerda recoger tu {producto.nombre} en las próximas 48 horas.", "success")
             return redirect(url_for('ver_catalogo'))
 
@@ -579,8 +560,7 @@ def create_app():
         cantidad_actual_en_carrito = carrito.get(id_str, 0)
         nueva_cantidad_total = cantidad_actual_en_carrito + cantidad_solicitada
 
-        # 4. VALIDACIÓN MEJORADA: Calcular stock realmente disponible
-        # (descontando reservas pendientes de otros usuarios)
+        # Calcular stock real descontando reservas pendientes de otros usuarios
         stock_reservado = db.session.query(func.sum(Pedido.cantidad))\
             .filter(Pedido.producto_id == producto_id,
                     Pedido.estado == 'pendiente',
@@ -589,7 +569,7 @@ def create_app():
 
         stock_disponible = producto.cantidad_actual - stock_reservado
 
-        # 5. Validar contra el stock disponible real
+        # Validar contra el stock disponible real
         if nueva_cantidad_total > stock_disponible:
             flash(
                 f"No puedes añadir {cantidad_solicitada} unidades. Solo hay {stock_disponible} disponibles (considerando reservas pendientes). Ya tienes {cantidad_actual_en_carrito} en tu carrito.",
@@ -633,7 +613,7 @@ def create_app():
         total_compra = 0
 
         if 'carrito' in session and session['carrito']:
-            # Optimización: Una sola query en lugar de N queries
+            # Optimización: consulta única en lugar de N consultas
             ids = [int(p_id) for p_id in session['carrito'].keys()]
             productos = Producto.query.filter(Producto.id.in_(ids)).all()
             productos_dict = {p.id: p for p in productos}
@@ -641,11 +621,11 @@ def create_app():
             for p_id, cantidad in session['carrito'].items():
                 producto = productos_dict.get(int(p_id))
                 if producto:
-                    subtotal = producto.precio_venta * cantidad
+                    subtotal = round(producto.precio_venta * cantidad, 2)
                     total_compra += subtotal
                     items_carrito.append({
                         'id': producto.id, 'nombre': producto.nombre,
-                        'precio': producto.precio_venta, 'cantidad': cantidad,
+                        'precio': round(producto.precio_venta, 2), 'cantidad': cantidad,
                         'subtotal': subtotal
                     })
 
@@ -666,9 +646,9 @@ def create_app():
 
             nuevo_pedido = Pedido(
                 tipo='venta', cantidad=cantidad,
-                precio_unidad_coste=producto.precio_coste,
-                precio_unidad_venta=producto.precio_venta,
-                total_venta=producto.precio_venta * cantidad,
+                precio_unidad_coste=round(producto.precio_coste, 2),
+                precio_unidad_venta=round(producto.precio_venta, 2),
+                total_venta=round(producto.precio_venta * cantidad, 2),
                 usuario_id=current_user.id, producto_id=producto.id,
                 estado='pendiente'
             )
@@ -701,10 +681,10 @@ def create_app():
         # Ordenar por fecha descendente
         reservas = query.order_by(Pedido.fecha.desc()).all()
 
-        # 2. NUEVO: Gráfico de barras TOP productos más comprados por el cliente
+        # Gráfico TOP productos más comprados por el cliente
         graph_reserva_json = None
         if reservas:
-            # Agrupamos por producto y sumamos las cantidades
+            # Agregamos por producto sumando cantidades y dinero gastado
             top_productos = db.session.query(
                 Producto.nombre,
                 func.sum(Pedido.cantidad).label('total_cantidad'),
@@ -829,6 +809,7 @@ def create_app():
         if reserva.estado == 'pendiente':
             producto = Producto.query.get(reserva.producto_id)
             if producto:
+                # Liberamos el stock bloqueado de la reserva cancelada
                 producto.cantidad_actual += reserva.cantidad
             reserva.estado = 'cancelado'
             db.session.commit()
@@ -845,15 +826,14 @@ def create_app():
 
         limpiar_reservas_expiradas()
 
-        # --- BALANCE FINANCIERO (Gráfico) ---
+        # Solo ventas completadas cuentan como ingreso real
         ventas_reales = Pedido.query.filter_by(tipo='venta', estado='completado').all()
         compras_proveedor = Pedido.query.filter_by(tipo='compra').all()
 
         total_ingresos = sum(v.total_venta for v in ventas_reales)
         total_costos = sum(c.precio_unidad_coste * c.cantidad for c in compras_proveedor)
 
-        # --- GRÁFICO DE BARRAS (Balance de Caja) ---
-        # Usamos listas simples para asegurar compatibilidad total
+        # Conversión explícita a float para compatibilidad con Plotly
         categorias = ["Ingresos Totales", "Costos Totales"]
         valores = [float(total_ingresos), float(total_costos)]
 
@@ -890,7 +870,7 @@ def create_app():
 
         top_3_tabla = []
         for p, qty, ingreso in top_ventas_raw:
-            # El costo total de lo que se ha vendido de este producto
+            # Cálculo de ganancia neta: ingresos menos costos totales vendidos
             costo_total_vendido = p.precio_coste * qty
             ganancia = ingreso - costo_total_vendido
 
@@ -909,7 +889,6 @@ def create_app():
     @app.route('/catalogo')
     @login_required
     def ver_catalogo():
-        # Solo mostramos productos que tengan stock disponible para la venta
         productos_en_stock = Producto.query.filter(Producto.cantidad_actual > 0).all()
         return render_template('catalogo.html', productos=productos_en_stock)
 
@@ -917,7 +896,6 @@ def create_app():
     @login_required
     @admin_required
     def reabastecer_producto(producto_id):
-
         producto = Producto.query.get_or_404(producto_id)
 
         try:
@@ -927,7 +905,7 @@ def create_app():
                 flash("La cantidad debe ser mayor a 0.", "warning")
                 return redirect(url_for('inventario'))
 
-            # Validar que no excedamos el stock máximo
+            # Validación límite: no exceder stock máximo configurado
             if producto.cantidad_actual + cantidad_compra > producto.stock_maximo:
                 flash(f"No puedes añadir {cantidad_compra} unidades. Excederías el stock máximo de {producto.stock_maximo}. Actualmente tienes {producto.cantidad_actual}.", "danger")
                 return redirect(url_for('inventario'))
@@ -937,15 +915,14 @@ def create_app():
             return redirect(url_for('inventario'))
 
         if cantidad_compra > 0:
-            # 1. Aumentamos el stock actual del producto existente
             producto.cantidad_actual += cantidad_compra
 
-            # 2. Registramos el PEDIDO de tipo 'compra' para el gráfico de costos
+            # Registro como compra para auditoría de costos
             nueva_compra = Pedido(
                 cantidad=cantidad_compra,
                 precio_unidad_coste=producto.precio_coste,
-                precio_unidad_venta=producto.precio_venta,  # Guardamos el precio del momento
-                total_venta=0,  # Es un gasto, no una venta
+                precio_unidad_venta=producto.precio_venta,
+                total_venta=0,
                 tipo='compra',
                 usuario_id=current_user.id,
                 producto_id=producto.id
